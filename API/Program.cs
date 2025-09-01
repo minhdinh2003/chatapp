@@ -77,7 +77,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("ChatAppPolicy", builder =>
     {
-        builder.WithOrigins("http://localhost:4200", "https://localhost:4200")
+        builder.WithOrigins("http://localhost:4200", "https://localhost:4200", "https://localhost:4300", "http://localhost:4300")
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
