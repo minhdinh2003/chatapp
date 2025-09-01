@@ -113,7 +113,7 @@ app.UseStaticFiles(); // Serve profile images from /Uploads
 app.UseCors("ChatAppPolicy");
 app.UseAuthentication();
 app.UseAuthorization();
-
+app.MapUploadEndpoint();
 app.MapAccountEndpoint();
 app.MapHub<ChatHub>("/hubs/chat");
 

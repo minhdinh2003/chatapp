@@ -1,24 +1,32 @@
-using System;
-
-namespace API.Common;
-
-public class Response<T>
+// Common/Response.cs
+namespace API.Common
 {
-
-    public bool IsSuccess { get; }
-    public T Data { get; }
-    public string? Error { get; }
-    public string? Message { get; set; }
-
-    public Response(bool isSuccess, T data, string? error, string? message)
+    public class Response<T>
     {
-        IsSuccess = isSuccess;
-        Data = data;
-        Error = error;
-        Message = message;
+        public bool isSuccess { get; set; }
+        public T Data { get; set; }
+        public string Message { get; set; }
+        public object Error { get; set; }
+
+        public static Response<T> Success(T data, string message)
+        {
+            return new Response<T>
+            {
+                isSuccess = true,
+                Data = data,
+                Message = message,
+                Error = null
+            };
+        }
+
+        public static Response<T> Failure(string message)
+        {
+            return new Response<T>
+            {
+                isSuccess = false,
+                Message = message,
+                Error = null
+            };
+        }
     }
-    public static Response<T> Success(T data, string? message = "") => new(true, data, null, message);
-    public static Response<T> Failure(string error) => new(false, default!, error, null);
-
 }
-

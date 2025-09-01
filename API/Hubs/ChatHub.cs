@@ -49,29 +49,36 @@ public class ChatHub(UserManager<AppUser> userManager, AppDbContext context, Mon
         }
         await Clients.All.SendAsync("OnlineUsers", await GetAllUsers());
     }
-
     public async Task SendMessage(MessageRequestDto message)
     {
+        if (message == null || string.IsNullOrEmpty(message.ReceiverId) || string.IsNullOrEmpty(message.Content))
+        {
+            Console.WriteLine("Invalid message data: " + (message == null ? "Message is null" : "ReceiverId or Content is null"));
+            return;
+        }
+
         var senderId = Context.User!.Identity!.Name;
         var recipientId = message.ReceiverId;
 
         var sender = await userManager.FindByNameAsync(senderId!);
-        var receiver = await userManager.FindByIdAsync(recipientId!);
+        var receiver = await userManager.FindByIdAsync(recipientId);
 
         if (sender == null || receiver == null)
         {
+            Console.WriteLine($"User not found: SenderId={senderId}, ReceiverId={recipientId}");
             return;
         }
 
+        var messageType = message.Content.StartsWith("http") ? "Image" : "Text";
+
         var newMsg = new Message
         {
-            Sender = sender,
-            Receiver = receiver,
             SenderId = sender.Id,
             ReceiverId = receiver.Id,
             IsRead = false,
             CreatedDate = DateTime.UtcNow,
-            Content = message.Content
+            Content = message.Content,
+            MessageType = messageType
         };
 
         await mongoContext.Messages.InsertOneAsync(newMsg);
@@ -83,10 +90,12 @@ public class ChatHub(UserManager<AppUser> userManager, AppDbContext context, Mon
             CreatedDate = newMsg.CreatedDate,
             SenderId = newMsg.SenderId,
             ReceiverId = newMsg.ReceiverId,
-            IsRead = newMsg.IsRead
+            IsRead = newMsg.IsRead,
+            MessageType = newMsg.MessageType
         };
 
-        await Clients.User(recipientId!).SendAsync("ReceiveNewMessage", responseDto);
+        await Clients.User(recipientId).SendAsync("ReceiveNewMessage", responseDto);
+        await Clients.User(sender.Id).SendAsync("ReceiveNewMessage", responseDto);
     }
 
     public async Task LoadMessages(string recipientId, int pageNumber = 1)
@@ -115,24 +124,42 @@ public class ChatHub(UserManager<AppUser> userManager, AppDbContext context, Mon
                 CreatedDate = x.CreatedDate,
                 ReceiverId = x.ReceiverId,
                 SenderId = x.SenderId,
-                IsRead = x.IsRead
+                IsRead = x.IsRead,
+                MessageType = x.MessageType
             })
             .ToListAsync();
+        messages.Reverse();
+        var unreadMessageIds = messages
+            .Where(m => m.ReceiverId == currentUser.Id && !m.IsRead)
+            .Select(m => m.Id)
+            .ToList();
 
-        foreach (var message in messages)
+        if (unreadMessageIds.Any())
         {
-            if (message.ReceiverId == currentUser.Id && !message.IsRead)
+            var updateFilter = Builders<Message>.Filter.In(x => x.Id, unreadMessageIds);
+            var update = Builders<Message>.Update.Set(x => x.IsRead, true);
+            await mongoContext.Messages.UpdateManyAsync(updateFilter, update);
+
+            foreach (var m in messages.Where(m => unreadMessageIds.Contains(m.Id)))
             {
-                var update = Builders<Message>.Update.Set(x => x.IsRead, true);
-                await mongoContext.Messages.UpdateOneAsync(x => x.Id == message.Id, update);
-                message.IsRead = true; // Cập nhật DTO để phản ánh trạng thái mới
+                m.IsRead = true;
+            }
+
+            var senderIds = messages
+                .Where(m => unreadMessageIds.Contains(m.Id))
+                .Select(m => m.SenderId)
+                .Distinct();
+
+            foreach (var senderId in senderIds)
+            {
+                await Clients.User(senderId)
+                    .SendAsync("MessagesSeen", currentUser.Id, unreadMessageIds);
             }
         }
 
         await Clients.User(currentUser.Id)
             .SendAsync("ReceiveMessageList", recipientId, messages);
     }
-
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         var username = Context.User!.Identity!.Name;
